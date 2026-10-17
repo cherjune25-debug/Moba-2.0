@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Poké MOBA</title>
+<style>
+html,body{margin:0;height:100%;background:#111;overflow:hidden;font-family:Arial,sans-serif;color:#fff}
+canvas{display:block}
+.full{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,.88);text-align:center}
+#cards{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;max-width:900px}
+.card{background:#222;border:2px solid #555;border-radius:12px;padding:12px;width:140px;cursor:pointer}
+.card:hover{border-color:#ffd400;background:#333}
+#shop{display:none;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:#1b1b2fee;border:2px solid #ffd400;border-radius:12px;padding:14px;width:520px;text-align:center}
+.it{display:inline-block;margin:4px;padding:8px;width:100px;background:#2b2b44;border:1px solid #666;border-radius:8px;cursor:pointer;font-size:12px}
+.it:hover{background:#44446a}
+button{padding:8px 18px;font-size:15px;cursor:pointer}
+#end{display:none}
+</style></head><body>
+<canvas id="c"></canvas>
+<div id="menu" class="full"><h1>⚡ POKÉ MOBA ⚡</h1><p>Pumili ng hero. Sirain ang red Nexus 🏰 para manalo!</p><div id="cards"></div></div>
+<div id="shop"><h2>🏪 Poké Mart - <span id="gold"></span>💰</h2><div id="items"></div>
+<h4>Items mo (click para i-sell 70%)</h4><div id="inv" style="min-height:40px"></div><p id="shopmsg" style="color:#ff8"></p>
+<button onclick="toggleShop()">Close (B)</button></div>
+<div id="end" class="full"><h1 id="endt"></h1><button onclick="location.reload()">Play Again</button></div>
+<script>
+const $=id=>document.getElementById(id);
+const cv=$('c'),ctx=cv.getContext('2d');
+let VW,VH;function resize(){VW=cv.width=innerWidth;VH=cv.height=innerHeight}
+addEventListener('resize',resize);resize();
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const rand=(a,b)=>a+Math.random()*(b-a);
+const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+const WORLD=3000;
+const BASE=[{x:300,y:2700},{x:2700,y:300}];
+const LANES=[
+ [[300,2700],[300,300],[2700,300]],
+ [[300,2700],[1500,1500],[2700,300]],
+ [[300,2700],[2700,2700],[2700,300]]];
+const CAMPS=[[800,1500,'😴'],[1500,800,'🪨'],[2200,1500,'🦍'],[1500,2200,'🐍'],[1000,1000,'🦇'],[2000,2000,'🐘']];
+
+/* ---------- DATA ---------- */
+const HEROES={
+pikachu:{n:'Pikachu',e:'⚡',c:'#ffd400',role:'Mage',hp:600,hpg:70,mp:320,mpg:28,atk:52,atkg:4,armor:18,range:320,speed:130,acd:.85,sk:[
+ {n:'Thunder Bolt',t:'shot',cd:4,mp:40,dmg:150,range:750,rad:24,spd:750,slow:1.5},
+ {n:'Thunder Wave',t:'nova',cd:9,mp:60,dmg:110,rad:230,stun:1},
+ {n:'Volt Tackle',t:'dash',cd:9,mp:70,dmg:170,range:380,rad:55},
+ {n:'Thunderstorm',t:'aoe',cd:35,mp:150,dmg:420,range:650,rad:260,stun:1}]},
+charizard:{n:'Charizard',e:'🔥',c:'#ff7a1a',role:'Fighter',hp:760,hpg:95,mp:260,mpg:20,atk:68,atkg:5.5,armor:28,range:90,speed:125,acd:.95,sk:[
+ {n:'Flamethrower',t:'shot',cd:5,mp:45,dmg:160,range:500,rad:30,spd:650},
+ {n:'Fire Spin',t:'nova',cd:8,mp:60,dmg:150,rad:200,slow:2},
+ {n:'Fly',t:'dash',cd:10,mp:70,dmg:180,range:420,rad:60},
+ {n:'Blast Burn',t:'aoe',cd:38,mp:140,dmg:450,range:500,rad:230}]},
+blastoise:{n:'Blastoise',e:'🐢',c:'#3d9bff',role:'Tank',hp:900,hpg:120,mp:260,mpg:20,atk:55,atkg:4.5,armor:40,range:110,speed:115,acd:1.05,sk:[
+ {n:'Water Gun',t:'shot',cd:5,mp:40,dmg:130,range:600,rad:28,spd:650,slow:1.5},
+ {n:'Aqua Ring',t:'heal',cd:14,mp:80,heal:200,rad:300},
+ {n:'Hydro Pump',t:'nova',cd:10,mp:70,dmg:140,rad:240,stun:1.2},
+ {n:'Hydro Cannon',t:'aoe',cd:40,mp:150,dmg:400,range:550,rad:250,stun:1}]},
+venusaur:{n:'Venusaur',e:'🌿',c:'#4cc24c',role:'Support',hp:680,hpg:80,mp:380,mpg:32,atk:48,atkg:3.8,armor:24,range:300,speed:118,acd:1,sk:[
+ {n:'Razor Leaf',t:'shot',cd:4,mp:35,dmg:130,range:650,rad:26,spd:700},
+ {n:'Synthesis',t:'heal',cd:12,mp:90,heal:260,rad:350},
+ {n:'Vine Whip',t:'nova',cd:9,mp:60,dmg:110,rad:240,slow:2.5},
+ {n:'Solar Beam',t:'aoe',cd:35,mp:160,dmg:430,range:700,rad:240}]},
+gengar:{n:'Gengar',e:'👻',c:'#9a6af0',role:'Assassin',hp:580,hpg:68,mp:300,mpg:24,atk:64,atkg:5,armor:18,range:150,speed:135,acd:.8,sk:[
+ {n:'Shadow Ball',t:'shot',cd:4,mp:45,dmg:170,range:700,rad:28,spd:720},
+ {n:'Shadow Sneak',t:'dash',cd:8,mp:60,dmg:150,range:400,rad:50},
+ {n:'Hex',t:'nova',cd:9,mp:65,dmg:130,rad:210,slow:2},
+ {n:'Dream Eater',t:'aoe',cd:32,mp:140,dmg:480,range:450,rad:200}]},
+lucario:{n:'Lucario',e:'🐺',c:'#5a8fe0',role:'Fighter',hp:720,hpg:90,mp:280,mpg:22,atk:66,atkg:5.2,armor:30,range:95,speed:128,acd:.9,sk:[
+ {n:'Aura Sphere',t:'shot',cd:5,mp:45,dmg:165,range:650,rad:28,spd:700},
+ {n:'Extreme Speed',t:'dash',cd:8,mp:60,dmg:150,range:400,rad:55},
+ {n:'Close Combat',t:'nova',cd:9,mp:70,dmg:160,rad:210,stun:.8},
+ {n:'Aura Storm',t:'aoe',cd:36,mp:150,dmg:440,range:500,rad:230}]}
+};
+const ITEMS=[
+ {n:'Potion',e:'🧪',p:80,potion:1,d:'Heal 250'},
+ {n:'Sword',e:'🗡️',p:300,s:{atk:18},d:'+18 ATK'},
+ {n:'Armor',e:'🛡️',p:300,s:{armor:20},d:'+20 Armor'},
+ {n:'Boots',e:'👟',p:250,s:{speed:25},d:'+25 Speed'},
+ {n:'Health Berry',e:'🍒',p:400,s:{hp:350},d:'+350 HP'},
+ {n:'Mana Berry',e:'🫐',p:300,s:{mp:200},d:'+200 MP'},
+ {n:'Spell Wand',e:'🪄',p:350,s:{ap:35},d:'+35 Skill Dmg'},
+ {n:'Vampire Fang',e:'🦷',p:450,s:{ls:.12},d:'12% Lifesteal'},
+ {n:'Focus Band',e:'🎀',p:400,s:{cdr:.15},d:'15% CDR'}];
+
+/* ---------- STATE ---------- */
+let units=[],projs=[],fx=[],spawnQ=[],camps=[],trees=[],time=0,nextWave=3,player=null,over=false,started=false;
+let kills=[0,0],uid=0,cam={x:0,y:0},mouse={x:0,y:0},msgT=0,msgS='';
+const msg=s=>{msgS=s;msgT=2};
+
+function mk(o){const u=Object.assign({id:uid++,x:0,y:0,hp:1,atk:10,armor:0,range:60,cd:0,acd:1,speed:100,r:14,team:0,type:'minion',target:null,dead:false,wp:1,stun:0,slowT:0,mp:1,maxmp:1,gold:0,xp:0},o);u.maxhp=o.maxhp||o.hp;u.hp=u.maxhp;units.push(u);return u}
+function laneLen(p){let L=0;for(let i=1;i<p.length;i++)L+=Math.hypot(p[i][0]-p[i-1][0],p[i][1]-p[i-1][1]);return L}
+function laneAt(p,t){let d=t*laneLen(p);for(let i=1;i<p.length;i++){const a=p[i-1],b=p[i],l=Math.hypot(b[0]-a[0],b[1]-a[1]);if(d<=l){const k=d/l;return[a[0]+(b[0]-a[0])*k,a[1]+(b[1]-a[1])*k]}d-=l}return p[p.length-1]}
+function dseg(px,py,a,b){const dx=b[0]-a[0],dy=b[1]-a[1];let t=((px-a[0])*dx+(py-a[1])*dy)/(dx*dx+dy*dy);t=clamp(t,0,1);return Math.hypot(px-a[0]-t*dx,py-a[1]-t*dy)}
+
+/* ---------- HEROES ---------- */
+function recalc(h){const b=h.base,l=h.lvl-1;const a={hp:0,mp:0,atk:0,armor:0,speed:0,ap:0,ls:0,cdr:0};
+ h.items.forEach(i=>{for(const k in i.s)a[k]+=i.s[k]});
+ h.maxhp=b.hp+b.hpg*l+a.hp;h.maxmp=b.mp+b.mpg*l+a.mp;h.atk=b.atk+b.atkg*l+a.atk;h.armor=b.armor+2*l+a.armor;
+ h.speed=b.speed+a.speed;h.ap=a.ap;h.ls=a.ls;h.cdr=Math.min(.4,a.cdr);h.hp=Math.min(h.hp,h.maxhp);h.mp=Math.min(h.mp,h.maxmp)}
+function mkHero(key,team,isPlayer,lane){const d=HEROES[key],b=BASE[team];
+ const h=mk({type:'hero',team,key,e:d.e,c:d.c,name:d.n,x:b.x+rand(-90,90),y:b.y+rand(-90,90),hp:1,r:20,range:d.range,acd:d.acd,
+  base:{hp:d.hp,hpg:d.hpg,mp:d.mp,mpg:d.mpg,atk:d.atk,atkg:d.atkg,armor:d.armor,speed:d.speed},skills:d.sk,lvl:1,xp:0,gold:isPlayer?600:500,items:[],
+  cds:[0,0,0,0],player:isPlayer,lane,path:team?LANES[lane].slice().reverse():LANES[lane],wp:1,kills:0,deaths:0,respawn:0,ls:0,ap:0,cdr:0,think:0,nextBuy:0,recall:false});
+ recalc(h);h.hp=h.maxhp;h.mp=h.maxmp;return h}
+const xpNeed=l=>100+l*70;
+function gainXp(h,a){h.xp+=a;while(h.lvl<15&&h.xp>=xpNeed(h.lvl)){h.xp-=xpNeed(h.lvl);h.lvl++;const oh=h.hp,om=h.mp;recalc(h);h.hp=Math.min(h.maxhp,oh+h.base.hpg);h.mp=Math.min(h.maxmp,om+h.base.mpg);fx.push({k:'ring',x:h.x,y:h.y,r:70,t:.6,T:.6,c:'#ffd400'});if(h===player)msg('LEVEL UP! Lv'+h.lvl)}}
+function xpShare(x,y,team,amt){const hs=units.filter(u=>u.type=='hero'&&u.team==team&&!u.dead&&Math.hypot(u.x-x,u.y-y)<800);hs.forEach(h=>gainXp(h,amt*1.2/hs.length))}
+
+/* ---------- COMBAT ---------- */
+const isEnemy=(u,e)=>!e.dead&&e.team!==u.team&&(e.team!==2||u.player);
+const near=(a,b,r)=>dist(a,b)<r;
+const towersAlive=t=>units.filter(u=>u.type=='tower'&&u.team==t&&!u.dead).length;
+function heal(u,a){u.hp=Math.min(u.maxhp,u.hp+a)}
+function cc(e,s){if(s.slow)e.slowT=Math.max(e.slowT,time+s.slow);if(s.stun&&!e.static)e.stun=Math.max(e.stun,time+s.stun)}
+function hurt(src,u,d,magic){if(u.dead)return;
+ if(u.type=='base'&&towersAlive(u.team)>3){if(src===player)msg('Nexus protected! Sirain muna ang 3 towers');return}
+ d*=100/(100+(magic?u.armor*.5:u.armor));u.hp-=d;
+ if(src.ls&&!magic)heal(src,d*src.ls);
+ if(u.type=='neutral'&&!u.target)u.target=src;
+ if(src===player||u===player)fx.push({k:'txt',x:u.x+rand(-10,10),y:u.y-25,t:.7,T:.7,s:Math.round(d),c:u===player?'#f55':'#fff'});
+ if(u.hp<=0)kill(u,src)}
+function kill(u,src){u.dead=true;u.target=null;const rt=src.team;
+ if(u.type=='hero'){u.deaths++;u.respawn=time+5+u.lvl*2;if(rt<2)kills[rt]++;if(src.type=='hero'){src.kills++;src.gold+=300}xpShare(u.x,u.y,rt,120+u.lvl*20);
+  if(u===player)msg('Natalo ka! Respawn in '+Math.round(5+u.lvl*2)+'s')}
+ else if(u.type=='tower'){units.filter(h=>h.type=='hero'&&h.team==rt).forEach(h=>h.gold+=150);msg((u.team?'Enemy':'Your')+' tower destroyed!')}
+ else if(u.type=='base'){end(rt)}
+ else{if(src.type=='hero')src.gold+=u.gold;xpShare(u.x,u.y,rt,u.xp)}
+ if(u.camp)u.camp.respawn=time+45;
+ fx.push({k:'ring',x:u.x,y:u.y,r:u.r*1.6,t:.4,T:.4,c:'#fff'})}
+function end(w){over=true;$('endt').textContent=player.team==w?'🏆 VICTORY!':'💀 DEFEAT';$('end').style.display='flex'}
+function mv(u,x,y,dt,stop=0){const d=Math.hypot(x-u.x,y-u.y);if(d<=stop)return 0;const s=Math.min(u.speed*(time<u.slowT?.55:1)*dt,d-stop);
+ u.x=clamp(u.x+(x-u.x)/d*s,0,WORLD);u.y=clamp(u.y+(y-u.y)/d*s,0,WORLD);return d-s-stop}
+function tryAttack(u,t){if(u.cd>0||dist(u,t)>u.range+t.r+u.r)return false;u.cd=u.acd;
+ if(u.range>120)fx.push({k:'line',x:u.x,y:u.y,x2:t.x,y2:t.y,t:.12,T:.12,c:u.c
